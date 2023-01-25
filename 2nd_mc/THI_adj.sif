@@ -1,0 +1,964 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!                                            !
+!          EXPERIMENTAL DETAILS              !
+!            SYSTEM OF UNITS                 !
+!                                            !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Experiment definition
+! (following naming and location conventions)
+$version="v500"
+$name="skel_name" !placeholder for setup ID
+$user="YOURusername"
+$group="YOURgroup"
+$myproject="YOURprojectname"
+$sourcedir="./"
+$input_path="/home/"group"/"user"/projects/"myproject"/pre-processing/geometries/"name"/"
+$output_path="/home/"group"/"user"/projects/"myproject"/output/geometries/"name"/"
+
+! Cost function multipliers ------------------
+$UAdim = 20.0          ! 20.0 (Svalbard 2.0)
+$SMBAdim = 1.0         ! 1.0 (Svalbard 1.0)
+$lambda_posH = 1.0e+2  ! 1.0e+2 (Svalbard 1.0e+2)
+$lambda_Hobs = 1.0e+0  ! 1.0e+2 (Svalbard 1.0e+1)
+!$lambda_Hmin = 1.0e+2
+!$lambda_Hmarine = 1.0e+2
+!$lambda_Hsia = 1e-4 
+$lambda_regH = 1.0e+0  ! 1.0e-1 (Svalbard 4.0e+1)
+$direction_scaler = 0.1 ! multiplier for weighting cross-flow variations normally 10.0
+$lambda_obsU = 1.0e-8  ! 1.0e-14 (Svalbard 1.0e-8)
+$lambda_regU = 0.0  ! 1.0e-4 (1.0e-1 gives worse results)
+$lambda_obsMB = 1.0e-4 ! 1.0e-4 (Svalbard 1.0e-2)
+
+! speed threshold for masking
+$vel_thresh = 100.0                       ! m / yr
+! uncertainty estimate of thickness observations
+$delta_thi_obs = 5.0                      ! m
+
+! Ice physics constants ----------------------
+! (define system of units)
+! CHOICE: MPa - a - m
+!                                         !           SI   -->   MPa - a - m
+$yearinsec = 365.25*24*60*60              !            s   -->   a
+$rhoice = 917.0/(1.0e6*yearinsec^2)       !     kg / m^3   -->   MPa a^2 / m^2
+$gravity = -9.81*yearinsec^2              !        m / s   -->   m / a^2
+$rhowater = 1028.0/(1.0e6*yearinsec^2)    !     kg / m^3   -->   MPa a^2 / m^2
+$zsl = 0.0                                !            m   -->   m
+$nflow = 3.0                              !            -   -->   -
+$fluidity = 1.0e-16*(1e+06^nflow)         !   Pa^-3 a^-1   -->   MPa^-3 a^-1     ! 1.0e-16
+$viscosity = fluidity^(-1.0/nflow)        !                -->   MPa yr^1/3
+$coupling_length = 500.0
+
+
+! Mesh and output location -------------------
+Header
+  CHECK KEYWORDS Warn
+  Mesh DB "$input_path$/mesh/" "grid"
+  !Mesh DB "/home/vault/$group$/$user$/projects/$myproject$/meshing/geometries/2nd_step/$name$/mesh/" "grid"
+  Results Directory "$output_path$"
+End
+
+! Simulations constants
+Constants
+  sea level = Real $zsl
+  water density = Real $rhowater
+  ice density = Real $rhoice
+  gravity constant = Real $gravity
+  flow exponent = Real $nflow
+  rate factor = Real $fluidity
+  speed threshold = Real $vel_thresh
+  coupling length = Real $coupling_length
+End
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!                                            !
+!            SIMULATION DETAILS              !
+!                                            !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Simulation
+  Coordinate System  = Cartesian 2D 
+  Simulation Type = Steady State
+
+
+  Output Intervals = 100
+
+  Steady State Max Iterations = 2000
+  Steady State Min Iterations = 1
+
+  Post File = "$name$_$version$_iter.vtu"
+
+  max output level = 1
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!                                            !
+!           PHYSICS AND MATERIAL             !
+!                                            !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+! Define modelled system ---------------------
+Body 1
+  Equation = 1
+  Body Force = 1
+  Material = 1
+  Initial Condition = 1
+End
+
+!! Initial Conditions ------------------------ 
+Initial Condition 1
+  DJDsmbTop = Real 0.0
+  DJDUV 1   = Real 0.0
+  DJDUV 2   = Real 0.0
+  Mask      = Real 1.0
+!  dhdt      = Real 0.0
+  deltaSPEED       = Real 20.0
+!  deltaH_gradSPEED = Real 0.0
+End
+
+! Ice material properties ------------------- 
+Material 1
+  UAdim   = Real $UAdim
+  SMBAdim = Real $SMBAdim
+  SSA Mean Density = Real $rhoice
+End
+
+! Applied external forces --------------------
+Body Force 1
+
+    deltaSPEED_gradH = Variable gradH 1, gradH 2, deltaSPEED
+     REAL MATC "tx(0)*tx(2)+tx(1)*tx(2)"
+
+    deltaH_gradSPEED = Variable deltaH
+     REAL MATC "tx(0)*0.0003"
+
+    deltaH = Variable deltaHup, deltaHdown
+     REAL MATC "if (abs(tx(0))<abs(tx(1))) {abs(tx(0))} else {abs(tx(1))}"
+
+    delta Top Surface Accumulation = Real 0.4
+
+    slope 1 = Equals dsdx
+    slope 2 = Equals dsdy
+
+    smoothvelocity 1 = Equals velocity 1
+    smoothvelocity 2 = Equals velocity 2
+
+    !velocity 1 = Variable ux,uy
+    !   REAL MATC "tx(0)*cos(0.0*3.14159/180)-tx(1)*sin(0.0*3.14159/180)"
+    !velocity 2 = Variable ux,uy
+    !   REAL MATC "tx(1)*cos(0.0*3.14159/180)+tx(0)*sin(0.0*3.14159/180)"
+
+    UxIni = Variable ux,uy
+       REAL MATC "tx(0)*cos(0.0*3.14159/180)-tx(1)*sin(0.0*3.14159/180)"
+    UyIni = Variable ux,uy
+       REAL MATC "tx(1)*cos(0.0*3.14159/180)+tx(0)*sin(0.0*3.14159/180)"
+
+    speed = Variable ux,uy
+       REAL MATC "sqrt(tx(0)*tx(0)+tx(1)*tx(1))"
+
+
+   TopAccumulation  = Variable surface,dhdt
+        REAL procedure "$sourcedir$/Executables/EffectiveMB" "EffectiveMB"
+   TopAccumulationIni  = Variable surface,dhdt
+        REAL procedure "$sourcedir$/Executables/EffectiveMB" "EffectiveMB"
+!   TopAccumulation  = Variable mb,dhdt
+!        REAL procedure "$sourcedir$/Executables/EffectiveMB" "EffectiveMB"
+!   TopAccumulationIni  = Variable mb,dhdt
+!        REAL procedure "$sourcedir$/Executables/EffectiveMB" "EffectiveMB"
+   TopAccumulation variance = Variable mb
+        REAL procedure "$sourcedir$/Executables/EffectiveMB" "VarianceSMB"
+   TopAccumulation a priori value = Equals TopAccumulationIni
+
+   Top Surface Accumulation = Equals TopAccumulation 
+
+  velocity 1 = Equals UxIni
+  velocity 2 = Equals UyIni 
+  velocity 1 a priori value = Equals UxIni
+  velocity 2 a priori value = Equals UyIni
+  velocity 1 variance = Variable speed
+     REAL procedure "$sourcedir$/Executables/EffectiveMB" "Variance"
+  velocity 2 variance = Variable speed
+       REAL procedure "$sourcedir$/Executables/EffectiveMB" "Variance"
+
+End
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!                                            !
+!              SOLVER SEQUENCE               !
+!                                            !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+! Load input variables
+Solver 1
+  Exec Solver = Before simulation
+
+  Equation = "ScatteredInter"
+
+  procedure = "Scattered2DDataInterpolator" "Scattered2DDataInterpolator"
+
+  Variable 1 = File "surface"
+  Variable 1 data file = File "$input_path$/insetDEM.nc"
+  Variable 1 Fill Value = Real -9999
+
+  Variable 2 = File "dsdx"
+  Variable 2 data file = File "$input_path$/insetDSDX.nc"
+  Variable 2 Fill Value = Real -9999
+  !Valid Min Value 2 = Real 5.0
+
+  Variable 3 = File "dsdy"
+  Variable 3 data file = File "$input_path$/insetDSDY.nc"
+  Variable 3 Fill Value = Real -9999
+
+  Variable 4 = File "mb"
+  Variable 4 data file = File "$input_path$/insetSMB.nc"
+  Variable 4 Fill Value = Real -9999
+! Interpolation Multiplier 4 = Real $1.0/0.917
+
+  Variable 5 = File "dhdt"
+  Variable 5 data file = File "$input_path$/insetDHDT.nc"
+  Variable 5 Fill Value = Real -9999
+
+  Variable 6 = File "ux"
+  Variable 6 data file = File "$input_path$/insetVX.nc"
+  Variable 6 Fill Value = Real -9999
+  !Valid Min Value 6 = Real 0.0
+
+  Variable 7 = File "uy"
+  Variable 7 data file = File "$input_path$/insetVY.nc"
+  Variable 7 Fill Value = Real -9999
+  !Valid Min Value 7 = Real 0.0
+  !Valid Max Value 7 = Real 360.0
+
+  Variable 8 = File "hsia"
+  Variable 8 data file = File "$input_path$/insetHSIA.nc"
+  Variable 8 Fill Value = Real -9999
+
+  Variable 9 = String "hobs"
+  Variable 9 data file = File "$input_path$/obsTHI.xyz"
+
+  Variable 10 = String "obsUNC"
+  Variable 10 data file = File "$input_path$/obsUNC.xyz"
+
+  Variable 11 = File "deltahsia"
+  Variable 11 data file = File "$input_path$/insetDELTAHSIA.nc"
+  Variable 11 Fill Value = Real -9999
+
+End
+
+! Export variables ---------------------------
+! into standard Elmer output
+Solver 2
+   Exec Solver = before Simulation
+   Equation = "UpdateExport"
+   Variable = -nooutput dumy
+
+   Procedure = "ElmerIceSolvers" "UpdateExport"
+
+   Exported Variable 1 = velocity
+   Exported Variable 1 DOFS = 2
+
+   Exported Variable 2 = TopAccumulation
+
+   Exported Variable 3 = UxIni
+   Exported Variable 4 = UyIni
+
+   Exported Variable 5 = TopAccumulationIni
+
+
+   Exported Variable 6 = dsdx
+   Exported Variable 6 DOFS = 1
+
+   Exported Variable 7 = dsdy
+   Exported Variable 7 DOFS = 1
+
+   Exported Variable 8 = hsia
+   Exported Variable 8 DOFS = 1
+
+   Exported Variable 9 = mb
+   Exported Variable 9 DOFS = 1
+
+   Exported Variable 10 = slope
+   Exported Variable 10 DOFS = 2
+
+   Exported Variable 11 = speed
+   Exported Variable 11 DOFS = 1
+
+   Exported Variable 12 = hobs
+   Exported Variable 12 DOFS = 1
+
+   Exported Variable 13 = ux
+   Exported Variable 13 DOFS = 1
+
+   Exported Variable 14 = uy
+   Exported Variable 14 DOFS = 1
+
+   Exported Variable 15 = deltaSPEED
+   Exported Variable 15 DOFS = 1
+
+   Exported Variable 16 = deltaH_gradSPEED
+   Exported Variable 16 DOFS = 1
+
+   Exported Variable 17 = deltahsia
+   Exported Variable 17 DOFS = 1
+
+   Exported Variable 18 = obsUNC
+   Exported Variable 18 DOFS = 1
+
+End
+
+Solver 3
+
+  Exec Solver = before Simulation
+  Equation = "DIRECTION COUPLING"
+  Variable = -dofs 2 "velocity"
+
+  Procedure = "$sourcedir$/Executables/direction_coupling" "direction_coupling"
+
+  Calculate Loads = Logical True
+
+  Linear System Solver = Direct
+  Linear System Direct Method = mumps
+  mumps percentage increase working space = Integer 60
+
+   Nonlinear System Max Iterations = 20
+   Nonlinear System Convergence Tolerance  = 1.0e-12!-12
+   Nonlinear System Newton After Iterations = 10
+   Nonlinear System Newton After Tolerance = 1.0e-08!-08
+   Nonlinear System Relaxation Factor = 1.00
+
+  Steady State Convergence Tolerance = Real 1.0e-10!-10
+
+End
+
+Solver 4
+   Exec Solver = before Simulation
+   Equation = "UpdateExport Initial"
+   Variable = -nooutput dumy
+
+   Procedure = "ElmerIceSolvers" "UpdateExport"
+
+   Exported Variable 1 = smoothvelocity
+   Exported Variable 1 DOFS = 2
+
+End
+
+! DIRECT THICKNESS SOLVER --------------------
+! not based on adjoint operator
+Solver 5
+
+   Equation = "Thickness"
+   Variable = -dofs 1 "H"
+
+   Procedure = "$sourcedir$/Executables/AdjointThicknessSolvers" "ThicknessSolver"
+
+   Calculate Loads = Logical True
+
+
+   Linear System Solver = Direct
+   !Linear System Direct Method = umfpack
+   Linear System Direct Method = mumps
+
+   Linear System Convergence Tolerance = Real 1.0e-10
+
+   ! equation is linear if no min/max
+   Nonlinear System Max Iterations = 100
+   Nonlinear System Convergence Tolerance  = 1.0e-10
+   Nonlinear System Relaxation Factor = 1.00
+
+   Steady State Convergence Tolerance = Real 1.0e-10
+
+   Stabilization Method = stabilized
+   Apply Dirichlet = Logical False
+
+   Flow Solution Name = String "Velocity"
+
+   Hsia Variable Name = String "Hsia"
+   !Mask Variable Name = String "obs_mask"
+   Speed Variable Name = String "speed"
+
+   Exported Variable 1 = "h Residual"
+   Exported Variable 2 = File "surface"
+   !Exported Variable 3 = File "speed"
+   !Exported Variable 5 = File "mb"
+   Exported Variable 3 = File "dhdt"
+   Exported Variable 4 = File "Mask"
+   Exported Variable 5 = File "minel"
+
+End
+
+Solver 6
+!! Compute Cost function as SUM_i=1^Nobs 0.5*(H-Hobs)^2
+   Equation = "Cost"
+   Variable = -nooutput "dumy1"
+   procedure = "$sourcedir$/Executables/CostSolver_Hpos" "CostSolver_Hpos"
+
+   Problem Dimension  = Integer 2
+   Reset Cost Value   = Logical True
+   Lambda = Real $lambda_posH
+   Cost Variable Name = String "CostValue"  
+   ! Name of Cost Variable
+   Cost Filename = File "Cost_$name$.dat"
+
+End
+
+! COMPUTE COST FUNCTION -----------------------
+! This solver has to be run before the Adjoint 
+! Solver as adjoint forcing is computed here
+Solver 7
+
+   Equation = "Cost_obs"
+
+! Solver needs to be associated => Define dummy variable
+   Variable = -nooutput "CostTHIobs"
+   Variable DOFs = 1
+
+   procedure = "$sourcedir$/Executables/CostSolver_Hobs" "CostSolver_Hobs"
+
+   Problem Dimension = Integer 2
+   Cost Filename = File "Cost_Hobs_$name$.dat"
+   Optimized Variable Name= String "h"
+   Gradient Variable Name= String "hb"
+   Cost Variable Name = String "CostValue"  ! Name of Cost Variable
+   Lambda= Real $lambda_Hobs
+   Reset Cost Value = Logical False
+
+   Observation File Name = File "$input_path$/obsTHI.xyz"
+
+end
+
+!! Cost if ice thickness is smaller than shallow ice core information
+!Solver 6
+!
+!   Equation = "Cost_Hmin"
+!
+!! Solver needs to be associated => Define dummy variable
+!   Variable = -nooutput "Cost_Hmin"
+!   Variable DOFs = 1
+!
+!   procedure = "$sourcedir$/Executables/CostSolver_Hmin" "CostSolver_Hmin"
+!
+!   Problem Dimension = Integer 2
+!   Cost Filename = File "Cost_Hmin_$name$.dat"
+!   Optimized Variable Name= String "h"
+!   Gradient Variable Name= String "hb"
+!   Cost Variable Name = String "CostValue"  ! Name of Cost Variable
+!   Lambda= Real $lambda_Hmin
+!   Reset Cost Value = Logical False
+!
+!   Observation File Name = File "/home/vault/gwgi/gwgi17/projects/$myproject$/input/thi_obs/icecores/shallow_cores.csv"
+!
+!end
+!
+!Solver 6
+!! Compute Cost function as SUM_i=1^Nobs 0.5*(H-Hobs)^2
+!  Equation = "Cost_marine"
+!   Variable = -nooutput "dumy1"
+!
+!   procedure = "$sourcedir$/Executables/CostSolver_Hmarine" "CostSolver_Hmarine"
+!
+!   Problem Dimension = Integer 2
+!   Lambda = Real $lambda_Hmarine
+!   Cost Variable Name = String "CostValue"
+!   ! Name of Cost Variable
+!   Cost Filename = File "Cost_Hmarine_$name$.dat"
+!   Maximum estimate from bathymetry= String "minel"
+!   Surface elevation = String "surface"
+!   Sea Level =  Real $zsl
+!   Reset Cost Value= Logical False
+!
+!End
+
+!! Mismatch with SIA ice thickness
+!Solver 7
+!
+!   Equation = "Cost_Hsia"
+!
+!! Solver needs to be associated => Define dummy variable
+!   Variable = -nooutput "CostHsia"
+!   Variable DOFs = 1
+!
+!   procedure = "$sourcedir$/Executables/CostSolver_Hsia" "CostSolver_Hsia"
+!
+!   Problem Dimension = Integer 2
+!   Cost Filename = File "Cost_Hsia_$name$.dat"
+!   Optimized Variable Name= String "h"
+!   Gradient Variable Name= String "hb"
+!   X-Slope Variable Name= String "dsdx"
+!   Y-Slope Variable Name= String "dsdy"
+!   Cost Variable Name = String "CostValue"  ! Name of Cost Variable
+!   Lambda= Real $lambda_Hsia
+!   Reset Cost Value = Logical True
+!
+!   Observation File Name = File "/home/hpc/gwgi/gwgi17/projects/$myproject$/input/selection/$name$/insetVXY.xyz"
+!
+!end
+
+Solver 8
+!! Regularisation Jreg=int_domain 0.5*(gradH)^2
+   Equation = "Regularisation"
+   !  Exec Solver = Never
+   Variable = -nooutput "dumyR"
+
+   !procedure = "$sourcedir$/Executables/AdjointSSASolvers" "CostSolver_SSA_Regularisation"
+   procedure = "$sourcedir$/Executables/AdjointSSASolvers" "CostSolver_SSA_Regularisation_vdir"
+
+   Problem Dimension=Integer 2
+   Cost Filename=File "CostReg_"$name".dat"
+   Optimized Variable Name= String "h"
+   Gradient Variable Name= String "hb"
+   Cost Variable Name= String "CostValue"
+   Lambda= Real $lambda_regH !10e-6
+   Reset Cost Value= Logical False
+   A priori Regularisation= Logical False
+   Direction Component X = String "UxIni"
+   Direction Component Y = String "UyIni"
+   DirectionScaler = Real $direction_scaler
+
+end
+
+!!! Calculate observations at location of observations
+!!Solver 10
+!!
+!!   Equation = "Cost_VELobs"
+!!
+!!! Solver needs to be associated => Define dummy variable
+!!   Variable = -nooutput "Cost_VMAGobs"
+!!   Variable DOFs = 1
+!!
+!!   procedure = "$sourcedir$/Executables/CostSolver_VMAGobs" "CostSolver_VMAGobs"
+!!
+!!   Problem Dimension = Integer 2
+!!   Cost Filename = File "Cost_VMAGobs_$name$.dat"
+!!   Optimized Variable Name= String "Velocity"
+!!   Gradient Variable Name= String "hb"
+!!   Cost Variable Name = String "CostValue"  ! Name of Cost Variable
+!!   Lambda= Real $lambda_obsU
+!!   Reset Cost Value = Logical False
+!!   
+!!   Observation File Name = File "/home/hpc/gwgi/gwgi17/projects/$myproject$/input/selection/$name$/insetVXY.xyz"
+!!
+!!end
+
+Solver 9
+   Equation = "APRIORIregUx"
+   Variable = -nooutput "dumyR"
+
+   procedure = "$sourcedir$/Executables/AdjointSSASolvers" "CostSolver_SSA_Regularisation"
+
+   Problem Dimension=Integer 2
+   Cost Filename=File "CostAPrioriUx_"$name".dat"
+   Optimized Variable Name= String "Velocity 1"
+   Gradient Variable Name= String "hb"
+   Cost Variable Name= String "CostValue"
+   Lambda= Real $lambda_obsU
+   Reset Cost Value= Logical False
+   A priori Regularisation= Logical True
+end
+
+Solver 10
+   Equation = "APRIORIregUy"
+   Variable = -nooutput "dumyR"
+
+   procedure = "$sourcedir$/Executables/AdjointSSASolvers" "CostSolver_SSA_Regularisation"
+
+   Problem Dimension=Integer 2
+   Cost Filename=File "CostAPrioriUy_"$name".dat"
+   Optimized Variable Name= String "Velocity 2"
+   Gradient Variable Name= String "hb"
+   Cost Variable Name= String "CostValue"
+   Lambda= Real $lambda_obsU
+   Reset Cost Value= Logical False
+   A priori Regularisation= Logical True
+end
+
+!Solver 10
+!   Equation = "APRIORIregH"
+!   Variable = -nooutput "dumyR"
+!
+!   procedure = "$sourcedir$/Executables/AdjointSSASolvers4" "CostSolver_SSA_Regularisation"
+!
+!   Problem Dimension=Integer 2
+!   Cost Filename=File "CostAPrioriH_"$name".dat"
+!   Optimized Variable Name= String "h"
+!   Gradient Variable Name= String "hb"
+!   Cost Variable Name= String "CostValue"
+!   Lambda= Real $lambda_Hobs
+!   Reset Cost Value= Logical False
+!   A priori Regularisation= Logical True
+!end
+
+Solver 11
+   Equation = "RegularisationVX"
+   Variable = -nooutput "dumyR"
+
+   procedure = "$sourcedir$/Executables/AdjointSSASolvers" "CostSolver_SSA_Regularisation"
+
+   Problem Dimension=Integer 2
+   Cost Filename=File "CostRegUx_"$name".dat"
+   Optimized Variable Name= String "Velocity 1"
+   Gradient Variable Name= String "hb"
+   Cost Variable Name= String "CostValue"
+   Lambda= Real $lambda_regU
+   Reset Cost Value= Logical False
+   A priori Regularisation= Logical False
+end
+
+Solver 12
+   Equation = "RegularisationVY"
+   Variable = -nooutput "dumyR"
+
+   procedure = "$sourcedir$/Executables/AdjointSSASolvers" "CostSolver_SSA_Regularisation"
+
+   Problem Dimension=Integer 2
+   Cost Filename=File "CostRegUy_"$name".dat"
+   Optimized Variable Name= String "Velocity 2"
+   Gradient Variable Name= String "hb"
+   Cost Variable Name= String "CostValue"
+   Lambda= Real $lambda_regU
+   Reset Cost Value= Logical False
+   A priori Regularisation= Logical False
+end
+
+Solver 13
+   Equation = "RegularisationMB"
+   Variable = -nooutput "dumyR"
+
+   procedure = "$sourcedir$/Executables/AdjointSSASolvers" "CostSolver_SSA_Regularisation"
+
+   Problem Dimension=Integer 2
+   Cost Filename=File "Cost_APrioriMB_"$name".dat"
+   Optimized Variable Name= String "TopAccumulation"
+   Gradient Variable Name= String "hb"
+   Cost Variable Name= String "CostValue"
+!   Weighting Mask Name=String "WeightMask"
+   Lambda= Real $lambda_obsMB
+   Reset Cost Value= Logical False
+   A priori Regularisation= Logical True
+
+   Exported Variable 1 = -dofs 1 "Hb"
+   Exported Variable 2 = -dofs 1 "CostValue"
+   Exported Variable 3 = -dofs 2 "DJDUV"
+   Exported Variable 4 = -dofs 1 "DJDsmbTop"
+end
+
+Solver 14
+!!!!  Adjoint Solution
+   Equation = "Adjoint"
+   Variable = Adjoint
+   Variable Dofs = 1
+
+   procedure = "$sourcedir$/Executables/AdjointThicknessSolvers" "AdjointSolver_H"
+
+   Linear System Solver = Direct
+   Linear System Direct Method = umfpack
+
+   !Name of the flow solution solver
+   Flow Solution Equation Name = string "Thickness"
+
+End
+
+!!!!!  Compute Derivative of Cost function / Velocity and TopSurface Accumulation
+Solver 15
+   Equation = "DJDp"
+   Variable = -nooutput "dumy2"
+
+   procedure = "$sourcedir$/Executables/AdjointThicknessSolvers" "DJDp_Adjoint_ThicknessSolver"
+
+   Apply Dirichlet = Logical False
+   Stabilization Method = stabilized
+
+   Thickness Solution Name = String "h"
+   Adjoint Solution Name = String "Adjoint"
+   Flow Solution Name = String "Velocity"
+   Slope Solution Name = String "slope"
+
+   ComputeDJDUV = Logical True
+   ComputeDJDsmbTop = Logical True
+end
+
+!! Mismatch with SIA ice thickness
+!Solver 15
+!
+!   Equation = " compute cost derivatives"
+!
+!   Variable = -nooutput "DJDdummy2"
+!   Variable DOFs = 1
+!
+!   procedure = "$sourcedir$/Executables/computeDJDp" "computeDJDp"
+!
+!   Problem Dimension   = Integer 2
+!   DJDsmbTop Variable Name   = String "DJDsmbTop"
+!   DJDUV Variable Name   = String "DJDUV"
+!   !Mask Variable Name  = String "obs_mask"
+!   Speed Variable Name = String "speed"
+!
+!!   Exported Variable 1 = -dofs 1 DJDsmbTop
+!!   Exported Variable 2 = -dofs 2 DJDUV
+!
+!end
+
+Solver 16
+   !! CREATE INTERMEDIATE VARIABLE FOR THE OPTIMISATION
+   !!  Var1=Velocity 1 / UAdim (UAdim an constant use for adimensionalisation (see Wrap.f90))
+   !!  Var2=Velocity 2 / UAdim
+   !!  Var 3= TopSurafceAccumulation / SMBAdim
+
+   Equation = "WrapVar"
+   Procedure = File "$sourcedir$/Executables/Wrap" "WrapC_param"
+   Variable = -nooutput "dumyUP"
+
+   Exported Variable 1 = -dofs 3 Var
+   Exported Variable 2 = -dofs 3 DJDVar
+End
+
+Solver 17
+   !!!!! Optimization procedure  of VAR (dimension 3)
+   !Exec Solver = never
+   Equation = "Optimize_m1qn3"
+   !!  Solver need to be associated => Define dumy variable
+   Variable = -nooutput "UB"
+   Variable DOFs = 1
+
+   !procedure = "$sourcedir$/Executables/Optimize_m1qn3Serial" "Optimize_m1qn3Serial"
+   procedure = "$sourcedir$/Executables/Optimize_m1qn3Parallel_Multi.so" "Optimize_m1qn3Parallel"
+
+   Cost Variable Name = String "CostValue"
+   Optimized Variable Name = String "Var"
+   Gradient Variable Name = String "DJDVar"
+   gradient Norm File = String "GradientNormAdjoint_"$name".dat"
+
+   Optimisation Mask Variable = String Mask
+
+   ! M1QN3 Parameters
+   M1QN3 dxmin = Real 1.0e-10
+   M1QN3 epsg = Real  1.e-14
+   M1QN3 niter = Integer 1000
+   M1QN3 nsim = Integer 2000
+   M1QN3 impres = Integer 5
+   M1QN3 DIS Mode = Logical False
+   M1QN3 df1 = Real 0.1
+   M1QN3 normtype = String "dfn"
+   M1QN3 OutputFile = File  "M1QN3_"$name".out"
+   M1QN3 ndz = Integer 20
+End
+
+Solver 18
+   !! Unwrap from values of Var returnesd by Optimization update values of Velocity and TopSurfaceAccumlulation
+
+   Equation = "UnWrapVar"
+   Procedure = File "$sourcedir$/Executables/Wrap" "UnWrapC_param"
+   Variable = -nooutput "dumyUP2"
+End
+
+! Determine spatial thickness gradient  ------------
+! required for post-processing caluculation of
+! thickness uncertainties
+Solver 19
+   Equation = "Thickness slope"
+   Variable = -dofs 2 "gradH"
+
+   Procedure = "$sourcedir$/Executables/NodalSlopeSolver2" "NodalSlopeSolver"
+! Compute the 2D gradient of the variable >Variable Name<
+   Variable Name = string "h"
+! Gradient computed by default at the nodes or 
+! if FE consistent average = Logical True:
+!       gradient computed at the Integration points and averaged 
+!       at the nodes using FE basis functions and weights
+   FE consistent average = Logical True
+
+End
+
+! Export variables ---------------------------
+! into standard Elmer output
+Solver 20
+   Equation = "UpdateExport deltaSPEED_gradH"
+   Variable = -nooutput dumber
+
+   Procedure = "ElmerIceSolvers" "UpdateExport"
+
+   Exported Variable 1 = deltaSPEED_gradH
+   Exported Variable 1 DOFS = 1
+
+   Exported Variable 2 = deltaH_gradSPEED
+   Exported Variable 2 DOFS = 1
+End
+
+! DIRECT THICKNESS SOLVER --------------------
+! not based on adjoint operator
+Solver 21
+
+   Equation = "deltaThickness - Downstream"
+   Variable = -dofs 1 "deltaHdown"
+
+   Procedure = "$sourcedir$/Executables/AdjointThicknessSolvers" "ThicknessUncertaintySolver"
+
+   !Calculate Loads = Logical True
+
+
+   Linear System Solver = Direct
+   !Linear System Direct Method = umfpack
+   Linear System Direct Method = mumps
+
+   Linear System Convergence Tolerance = Real 1.0e-10
+
+   ! equation is linear if no min/max
+   Nonlinear System Max Iterations = 100
+   Nonlinear System Convergence Tolerance  = 1.0e-10
+   Nonlinear System Relaxation Factor = 1.00
+
+   Steady State Convergence Tolerance = Real 1.0e-10
+
+   Stabilization Method = stabilized
+   Apply Dirichlet = Logical True
+
+   Flow Solution Name = String "Velocity"
+
+   Hsia Variable Name = String "Hsia"
+   !Mask Variable Name = String "obs_mask"
+   Speed Variable Name = String "speed"
+
+   Exported Variable 1 = "deltaHdown Residual"
+End
+
+! DIRECT THICKNESS SOLVER --------------------
+! not based on adjoint operator
+Solver 22
+
+   Equation = "deltaThickness - Upstream"
+   Variable = -dofs 1 "deltaHup"
+
+   Procedure = "$sourcedir$/Executables/AdjointThicknessSolvers" "inverseThicknessUncertaintySolver"
+
+   !Calculate Loads = Logical True
+
+
+   Linear System Solver = Direct
+   !Linear System Direct Method = umfpack
+   Linear System Direct Method = mumps
+
+   Linear System Convergence Tolerance = Real 1.0e-10
+
+   ! equation is linear if no min/max
+   Nonlinear System Max Iterations = 100
+   Nonlinear System Convergence Tolerance  = 1.0e-10
+   Nonlinear System Relaxation Factor = 1.00
+
+   Steady State Convergence Tolerance = Real 1.0e-10
+
+   Stabilization Method = stabilized
+   Apply Dirichlet = Logical True
+
+   Flow Solution Name = String "Velocity"
+
+   Hsia Variable Name = String "Hsia"
+   !Mask Variable Name = String "obs_mask"
+   Speed Variable Name = String "speed"
+
+   Exported Variable 1 = "deltaHup Residual"
+End
+
+! Export variables ---------------------------
+! into standard Elmer output
+Solver 23
+   Equation = "UpdateExport deltaH"
+   Variable = -nooutput dumbo
+
+   Procedure = "ElmerIceSolvers" "UpdateExport"
+
+   Exported Variable 1 = deltaH
+   Exported Variable 1 DOFS = 1
+End
+
+
+Solver 24
+  Exec Solver = after all
+  Equation = "Local Output final - Thickness"
+
+! Solver needs to be associated => Define dummy variable
+  Variable = -nooutput "lucky"
+  Variable DOFs = 1
+
+  procedure = "$sourcedir$/Executables/POI_output_thickness" "POI_output_thickness"
+
+  Problem Dimension = Integer 2
+
+  Thickness Variable Name = String "h"
+  Slope Variable Name = String "slope"
+  Surface Variable Name = String "surface"
+  POI File Name = File "$input_path$/insetDEM4OUTPUT.xyz"
+  !Result File Name = File "/lxfs/$group$/$user$/projects/$myproject$/output/2nd_step/geometries/$name$/$name$_$version$_poi_thickness"
+  Result File Name = File "$output_path$/$name$_$version$_poi_thickness"
+  Result save interval = Integer 1
+!  Save used data = LOGICAL True
+end
+
+Solver 25
+  Exec Solver = after all
+  Equation = "Local Output final - Delta SIA Thickness"
+
+! Solver needs to be associated => Define dummy variable
+  Variable = -nooutput "luckyluckest22"
+  Variable DOFs = 1
+
+  procedure = "$sourcedir$/Executables/POI_output_final" "POI_output_final"
+
+  Problem Dimension = Integer 2
+
+  Output Variable Name = String "deltah"
+  Thickness Variable Name = String "H"
+  !Flux Variable Name = String "flux"
+  Slope Variable Name = String "slope"
+  Surface Variable Name = String "surface"
+  POI File Name = File "$input_path$/insetDEM4OUTPUT.xyz"
+  !Result File Name = File "/lxfs/$group$/$user$/projects/$myproject$/output/2nd_step/geometries/$name$/$name$_$version$_poi_error"
+  Result File Name = File "$output_path$/$name$_$version$_poi_error"
+  Result save interval = Integer 1
+!  Save used data = LOGICAL True
+end
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!                                            !
+!               DEFINE SEQUENCE              !
+!                                            !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Equation 1
+  Active Solvers (25)= 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!                                            !
+!              SET BOUNDARY CONDITIONS       !
+!                                            !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Boundary Condition 1
+ Target Boundaries = 1
+
+! Mask       = Real -1.0
+ h          = Equals hsia
+ deltaHup   = Equals deltahsia
+ deltaHdown = Equals deltahsia
+
+End
+
+Boundary Condition 2
+ Target Boundaries = 2
+
+! Mask = Real -1.0
+! h    = Equals hsia
+
+End
+
+Boundary Condition 3
+ Target Boundaries = 3
+
+ !h          = Equals hobs
+ deltaHup   = Equals obsUNC
+ deltaHdown = Equals obsUNC
+
+ !deltaHup   = Variable h,hobs
+ !    REAL MATC "if (abs(tx(0)-tx(1))>25.0) {abs(tx(0)-tx(1))} else {25.0+0.0*tx(0)}"
+ !    !REAL MATC "max(abs(tx(0)-tx(1)),5)"
+ !deltaHdown = Variable h,hobs
+ !    REAL MATC "if (abs(tx(0)-tx(1))>25.0) {abs(tx(0)-tx(1))} else {25.0+0.0*tx(0)}"
+ !    !REAL MATC "max(abs(tx(0)-tx(1)),5)"
+
+End
+

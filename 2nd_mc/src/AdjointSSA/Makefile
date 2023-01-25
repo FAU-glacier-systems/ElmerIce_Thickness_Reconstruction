@@ -1,0 +1,38 @@
+
+PLATFORM := $(shell uname -s)
+EXECUTABLES := AdjointSSASolvers.$(PLATFORM)
+
+SRC=$(SRC_SSA)/src
+
+_SOURCES := AdjointSolverSSA.f90 \
+	DJDp_Adjoint_SSA.f90 \
+	CostSolver_SSA_Adjoint.f90 \
+        CostSolver_SSA_Regularisation.f90 \
+        CostSolver_SSA_Regularisation_vdir.f90 \
+	CostSolver_SSA_Regularisation_mask.f90 \
+	CostSolver_SSA_FluxDiv_Adjoint.f90  
+SOURCES=$(patsubst $(SRC)/%, % ,$(_SOURCES))
+
+_SOLVERS := $(patsubst %.f90, %.o ,$(SOURCES))
+SOLVERS = $(patsubst %, $(OBJ)/% ,$(_SOLVERS))
+
+compile: $(EXECUTABLES)
+
+AdjointSSASolvers.$(PLATFORM): $(SOLVERS)
+	@if test '$(PLATFORM)' = 'Darwin'; then \
+	   echo "Dynamic linking solvers to $(PLATFORM)"; \
+	   elmerf90 $(SOLVERS) -o AdjointSSASolvers.dylib; \
+	else \
+	   if test '$(PLATFORM)' = 'Linux'; then \
+	      echo "Dynamic linking solvers to $(PLATFORM)"; \
+	      elmerf90  $(SOLVERS) -o AdjointSSASolvers.so; \
+	   fi \
+	 fi
+
+$(SOLVERS): $(OBJ)/%.o: $(SRC)/%.f90
+	elmerf90 -c $< -o $@
+
+
+clean: 
+	rm -f $(EXECUTABLES)
+	rm -f $(SOLVERS)

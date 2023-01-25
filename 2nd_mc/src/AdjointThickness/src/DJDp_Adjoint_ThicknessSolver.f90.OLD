@@ -1,0 +1,169 @@
+!
+! *
+! *  Elmer, A Finite Element Software for Multiphysical Problems
+! *
+! *  Copyright 1st April 1995 - , CSC - IT Center for Science Ltd., Finland
+! * 
+! *  This program is free software; you can redistribute it and/or
+! *  modify it under the terms of the GNU General Public License
+! *  as published by the Free Software Foundation; either version 2
+! *  of the License, or (at your option) any later version.
+! * 
+! *  This program is distributed in the hope that it will be useful,
+! *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+! *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+! *  GNU General Public License for more details.
+! *
+! *  You should have received a copy of the GNU General Public License
+! *  along with this program (in file fem/GPL-2); if not, write to the 
+! *  Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, 
+! *  Boston, MA 02110-1301, USA.
+! *
+! *****************************************************************************/
+!
+!> \ingroup Solvers
+!-----------------------------------------------------------------------------
+SUBROUTINE DJDp_Adjoint_ThicknessSolver( Model,Solver,dt,TransientSimulation )
+  USE DefUtils
+  USE Differentials
+  USE MaterialModels
+  IMPLICIT NONE
+
+  !------------------------------------------------------------------------------
+  !    external variables
+  !------------------------------------------------------------------------------
+  TYPE(Model_t) :: Model
+  TYPE(Solver_t):: Solver
+  REAL(KIND=dp) :: dt
+  LOGICAL :: TransientSimulation
+  !------------------------------------------------------------------------------
+  !    Local variables
+  !------------------------------------------------------------------------------
+
+  LOGICAL ::&
+       firstTime=.TRUE., Found, AllocationsDone = .FALSE., stat, &
+       LimitDisp,  Bubbles = .False.,&
+       SubstantialSurface = .TRUE.,&
+       UseBodyForce = .TRUE., ApplyDirichlet=.FALSE.,  ALEFormulation=.FALSE. , &
+       ConvectionVar,Compute_dhdt
+  LOGICAL, ALLOCATABLE ::  LimitedSolution(:,:), ActiveNode(:,:)
+
+  INTEGER :: & 
+       i,j,K,L, p, q, R, t,N,NMAX,MMAX,nfamily, deg, Nmatrix,&
+       edge, bf_id,DIM,istat,LocalNodes,nocorr,&
+       NSDOFs,NonlinearIter,iter, numberofsurfacenodes
+  INTEGER, POINTER ::&
+       ThickPerm(:), DHDTPrem(:),FlowPerm(:), NodeIndexes(:), EdgeMap(:,:)
+
+!adjoint
+  INTEGER, POINTER :: ThickbPerm(:)
+
+  REAL(KIND=dp) :: &
+       at,st,totat,totst,CPUTime,Norm,PrevNorm,LocalBottom, cv, &
+       Relax, MaxDisp, maxdh,LinearTol,NonlinearTol,RelativeChange,&
+       smallestpossiblenumber, rr, ss
+
+  REAL(KIND=dp), POINTER :: ForceVector(:), Thick(:),DHDT(:),PreH(:,:), &
+       FlowSolution(:),  PointerToResidualVector(:)
+
+!!adjoint
+  REAL(KIND=dp), POINTER :: Thickb(:)
+
+  REAL(KIND=dp), ALLOCATABLE :: ResidualVector(:), &
+       STIFF(:,:),SourceFunc(:),FORCE(:), TimeForce(:), LOAD(:),&
+       MASS(:,:), Velo(:,:), Flux(:,:), LowerLimit(:), UpperLimit(:), &
+       OldValues(:), OldRHS(:),StiffVector(:),MeshVelocity(:,:)
+!!adjoint
+  REAL(KIND=dp), ALLOCATABLE ,SAVE:: LOADb(:),Velob(:,:)
+
+  LOGICAL :: Reset, ComputeDJDsmbTop,ComputeDJDsmbBot,ComputeDJDUV
+  TYPE(Variable_t), POINTER :: DJDsmbTopSol,DJDsmbBotSol,DJDUVSol
+  INTEGER,POINTER :: DJDsmbTopPerm(:),DJDsmbBotPerm(:),DJDUVPerm(:)
+  REAL(KIND=dp), POINTER :: DJDsmbTop(:),DJDsmbBot(:),DJDUV(:)
+
+  CHARACTER(LEN=MAX_NAME_LEN)  :: SolverName,  EquationName, FlowSolName, StabilizeFlag
+  CHARACTER(LEN=MAX_NAME_LEN) :: ThickSolName,ThickbSolName
+
+  TYPE(Nodes_t)   :: ElementNodes
+  TYPE(Element_t),POINTER :: CurrentElement
+  TYPE(Variable_t), POINTER :: FlowSol, ThickSol,ThickbSol
+  TYPE(ValueList_t), POINTER :: BodyForce, SolverParams, Material, Equation
+  TYPE(Matrix_t), POINTER :: Systemmatrix
+  !-----------------------------------------------------------------------------
+  !      remember these variables
+  !----------------------------------------------------------------------------- 
+  SAVE STIFF, MASS, FORCE, &
+       LOAD, &
+       ElementNodes, AllocationsDone, Velo,  TimeForce, &
+       UseBodyForce, LimitedSolution, LowerLimit, UpperLimit, ActiveNode, OldValues, OldRHS, &
+       ResidualVector, StiffVector, MeshVelocity
+
+  !------------------------------------------------------------------------------
+  !    Get variabel/solver name
+  !------------------------------------------------------------------------------
+  SolverName = 'DJDp_Adjoint_ThicknessSolver'
+
+  !------------------------------------------------------------------------------
+  !    Get constants and solver params
+  !------------------------------------------------------------------------------
+  DIM = CoordinateSystemDimension()
+  smallestpossiblenumber = TINY(smallestpossiblenumber)
+  SolverParams => GetSolverParams()
+
+
+  ApplyDirichlet = GetLogical( SolverParams, &
+       'Apply Dirichlet', Found)
+  IF ( .NOT.Found ) THEN
+     ApplyDirichlet = .FALSE.
+     CALL Info(SolverName, 'No keyword > Apply Dirichlet < found. No limitation of solution',Level=6 )
+  ELSE
+     IF (ApplyDirichlet) THEN
+        CALL Info(SolverName, 'Using Dirichlet method for limitation',Level=6 )
+     ELSE
+        CALL Info(SolverName, 'No limitation of solution',Level=6 )
+     END IF
+  END IF
+
+  ALEFormulation = GetLogical( SolverParams, &
+       'ALE Formulation', Found)
+  IF ( .NOT.Found ) THEN
+     ALEFormulation = .FALSE.
+  END IF
+  IF (ALEFormulation) THEN 
+     CALL Info(SolverName, 'Using horizontal ALE Formulation',Level=6 )
+  ELSE
+     CALL Info(SolverName, 'Using horizontal Eulerian Formulation',Level=6 )
+  END IF
+
+  StabilizeFlag = GetString( SolverParams, &
+       'Stabilization Method',Found )
+  SELECT CASE(StabilizeFlag)
+     CASE('stabilized')
+        Bubbles = .FALSE.
+     CASE('bubbles')
+        Bubbles = .TRUE.
+     CASE DEFAULT
+        Bubbles = .FALSE.
+  END SELECT
+  IF (Bubbles) THEN
+     CALL Info(SolverName, 'Using residual free bubble stabilization',Level=6 )
+  ELSE
+     CALL Info(SolverName, &
+          'Using residual squared-stabilized formulation.',Level=6 )
+  END IF
+
+
+  WRITE(Message,'(A,I0)') 'Mesh dimension: ', DIM
+  CALL Info( SolverName, Message, Level=8 )
+
+  !------------------------------------------------------------------------------
+  !    Allocate some permanent storage, this is done first time only
+  !------------------------------------------------------------------------------
+
+  IF ( .NOT. AllocationsDone .OR. Solver % Mesh % Changed) THEN
+     NMAX = Model % MaxElementNodes
+     MMAX = Model % Mesh % NumberOfNodes 
+
+     IF ( AllocationsDone ) THEN
+        DEALLOCATE( ElementNodes % x,    &
+             ElementNodes % y,    &
